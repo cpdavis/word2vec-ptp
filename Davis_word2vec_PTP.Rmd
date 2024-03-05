@@ -1,0 +1,179 @@
+---
+title: "Using word2vec in R to examine semantic similarity"
+author: "Charles Davis"
+date: "2/16/2021"
+output: html_document
+---
+
+First let's clear our workspace, then load in our libraries, and set our working directory. You'll need to
+change the file path to reflect where you place the downloaded folder.
+
+```{r clear}
+
+# clear the workspace (useful if we're not knitting)
+rm(list=ls())
+
+```
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(tidytext)
+library(word2vec)
+
+knitr::opts_knit$set(root.dir = normalizePath("/PATH/TO/YOURFOLDER/word2vec-ptp/"))
+
+```
+
+This chunk would typically load in the data for training the model. There are
+some examples of training corpora that you can use in the slideshow. Because we
+will be loading in a pre-trained model, I have commented this code out.
+
+```{r load data}
+
+#data <- read.csv(PATH_TO_YOUR_DATA)
+
+```
+
+The next chunk will train the word2vec model on a dataset of tweets collected
+between February and April of 2020. I have commented out this section - run at
+your own peril. I have pretrained the model for you, so you can skip ahead and
+play with the model, and test out running it yourself later. I have commented
+out code lines with two hashtags to distinguish from annotations.
+
+```{r train model}
+
+# setting a seed just guarantees that we get the same result each time we run
+# the process so if i train a word2vec model, forget to save it, i can produce
+# the exact same embeddings by setting the same seed
+
+##set.seed(112345)
+
+#before training, let's get the data into a simple, uniform format by selecting
+#just one column and formatting in all lowercase 
+
+##all_tweets_lower <- tolower(data$text)
+
+# now this line will train the model. i've set the parameters to closely
+# resemble the optimal model parameters found by Baroni et al. (2014) in a
+# systematic investigation of possible iterations of word2vec. this means that
+# each vector will have 400 dimensions, and the model will run  15 iterations.
+# more iterations leads to a more precise model, but also higher numbers of each
+# result in greater computational demand. hence commenting out this code! 
+# a pre-trained model is below
+
+##model <- word2vec(x = all_tweets_lower, type = "cbow", dim = 400, iter = 15)
+
+# let's go ahead and save that model
+
+##write.word2vec(model, "word2vec_model.bin")
+
+```
+
+Skip ahead to this chunk to read in the pre-trained model. 
+
+```{r read in saved model}
+
+# this function reads in a word2vec model that has been pre-trained, using the
+# code above. this just means that the word embeddings have already been
+# calculated - each word is stored as a 400-dimensional vector
+
+model <- read.word2vec("word2vec_model.bin")
+
+```
+
+There are a few ways that we can examine the word embeddings. One is to simply
+look at the embedding vectors. Another is to examine the word vectors that are
+most similar to a given word.
+
+```{r examine embeddings}
+
+# let's try an example: the following lines simply take the embeddings for two
+# single words. let's then format them as vectors so that we can do other things
+# with them
+
+virus <- predict(model, "virus", type = "embedding")
+virus <- as.vector(virus)
+disease <- predict(model, "disease", type = "embedding")
+disease <- as.vector(disease)
+
+# we can then examine the similarity of those embeddings. you'll often hear
+# cosine similarity in relation to distributional semantic models. but, in
+# effect, it's just another word for a correlation. so let's do a correlation.
+# cosine would get you the same result, but it's in a different package so let's
+# stick with this for now
+
+cor(virus,disease)
+
+# another function that is more intuitively interesting is to examine what word
+# vectors are most similar to a word (or set of words). we can specify just how
+# many similar word vectors we want to look at. here i've chosen 50.
+
+nearest <- predict(model, c("disease", "enemy", "threat", "risk", 
+                            "responsibility", "fear", "sickness", "virus"), 
+                         type = "nearest", top_n = 10)
+nearest
+
+```
+
+This final chunk will perform the function that has garnered word2vec a ton of
+publicity: analogy. the claim is that word2vec can understand and "solve"
+analogies like "king is to man as X is to woman", or otherwise stated "king -
+man + woman = X", where X ought to be "queen". another example would be
+"washington - america + canada = ottawa""
+
+```{r analogies!}
+
+# let's see what "virus" looks like without coronavirus
+
+analogy_virus <- predict(model, newdata = c("virus", "coronavirus"), 
+                         type = "embedding")
+analogy_virus <- analogy_virus["virus", ] - analogy_virus["coronavirus", ]
+
+predict(model, newdata = analogy_virus, type = "nearest", top_n = 3)
+
+# maybe a more creative analogy. twitter is to millennials as facebook is to...?
+
+analogy_social <- predict(model, newdata = c("twitter", "millennial", "facebook"), 
+                          type = "embedding")
+analogy_social <- analogy_social["millennial", ] - analogy_social["twitter", ] + analogy_social["facebook", ]
+
+predict(model, newdata = analogy_social, type = "nearest", top_n = 3)
+
+```
+Uh oh! You may have noticed that there was a ton of stray punctuation in the
+'nearest neighbors' tables. We forgot a cleaning step. We can use some of the
+`stringr` tools we used last week to clean up the data, and see how that affects
+our word embeddings. We won't do this for this exercise because the files end up
+being so big, but if you're curious to get some experience this, feel free to
+try the exercise again with `model_clean` created below.
+
+```{r run w clean data}
+
+# this function will remove all hyperlinks, change ampersands to "and", remove
+# stray punctuation, remove all mentioins (@s), and convert all new lines to
+# spaces (borrowed and adapted from RDRR on StackOverflow:
+# https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r)
+
+clean_tweets <- function(x) {
+  x %>%
+    str_remove_all(" ?(f|ht)(tp)(s?)(://)(.*)[.|/](.*)") %>%
+    str_replace_all("&amp;", "and") %>%
+    str_remove_all("[[:punct:]]") %>%
+    str_remove_all("@[[:alnum:]]+") %>%
+    str_replace_all("\\\n", " ")
+  }
+
+# this will run the function on our lowercase tweets
+
+#cleaned_tweets <- clean_tweets(all_tweets_lower)
+
+# let's train the model again
+
+#model_clean <- word2vec(x = cleaned_tweets, type = "cbow", dim = 400, iter = 15)
+
+# and this will save the word embeddings for later use
+
+#write.word2vec(model_clean, "word2vec_model_clean.bin")
+
+```
